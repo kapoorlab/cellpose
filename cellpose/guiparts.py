@@ -3,6 +3,122 @@ import pyqtgraph as pg
 from pyqtgraph import functions as fn
 from pyqtgraph import Point
 import numpy as np
+import pathlib
+
+def make_quadrants(parent):
+    """ make quadrant buttons """
+    parent.quadbtns = QtGui.QButtonGroup(parent)
+    for b in range(9):
+        btn = QuadButton(b, ' '+str(b+1), parent)
+        parent.quadbtns.addButton(btn, b)
+        parent.l0.addWidget(btn, 0 + parent.quadbtns.button(b).ypos, 29 + parent.quadbtns.button(b).xpos, 1, 1)
+        btn.setEnabled(True)
+        b += 1
+    parent.quadbtns.setExclusive(True)
+
+class QuadButton(QtGui.QPushButton):
+    """ custom QPushButton class for quadrant plotting
+        requires buttons to put into a QButtonGroup (parent.quadbtns)
+         allows only 1 button to pressed at a time
+    """
+    def __init__(self, bid, Text, parent=None):
+        super(QuadButton,self).__init__(parent)
+        self.setText(Text)
+        self.setCheckable(True)
+        self.setStyleSheet(parent.styleUnpressed)
+        self.setFont(QtGui.QFont("Arial", 8, QtGui.QFont.Bold))
+        self.resize(self.minimumSizeHint())
+        self.setMaximumWidth(22)
+        self.xpos = bid%3
+        self.ypos = int(np.floor(bid/3))
+        self.clicked.connect(lambda: self.press(parent, bid))
+        self.show()
+
+    def press(self, parent, bid):
+        for b in range(9):
+            if parent.quadbtns.button(b).isEnabled():
+                parent.quadbtns.button(b).setStyleSheet(parent.styleUnpressed)
+        self.setStyleSheet(parent.stylePressed)
+        self.xrange = np.array([self.xpos-.2, self.xpos+1.2]) * parent.Lx/3
+        self.yrange = np.array([self.ypos-.2, self.ypos+1.2]) * parent.Ly/3
+        # change the zoom
+        parent.p0.setXRange(self.xrange[0], self.xrange[1])
+        parent.p0.setYRange(self.yrange[0], self.yrange[1])
+        parent.show()
+
+def horizontal_slider_style():
+    return """QSlider::groove:horizontal {
+            border: 1px solid #bbb;
+            background: black;
+            height: 10px;
+            border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal {
+            background: qlineargradient(x1: 0, y1: 0,    x2: 0, y2: 1,
+                stop: 0 black, stop: 1 rgb(150,255,150));
+            background: qlineargradient(x1: 0, y1: 0.2, x2: 1, y2: 1,
+                stop: 0 black, stop: 1 rgb(150,255,150));
+            border: 1px solid #777;
+            height: 10px;
+            border-radius: 4px;
+            }
+
+            QSlider::add-page:horizontal {
+            background: black;
+            border: 1px solid #777;
+            height: 10px;
+            border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 #eee, stop:1 #ccc);
+            border: 1px solid #777;
+            width: 13px;
+            margin-top: -2px;
+            margin-bottom: -2px;
+            border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal:hover {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 #fff, stop:1 #ddd);
+            border: 1px solid #444;
+            border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal:disabled {
+            background: #bbb;
+            border-color: #999;
+            }
+
+            QSlider::add-page:horizontal:disabled {
+            background: #eee;
+            border-color: #999;
+            }
+
+            QSlider::handle:horizontal:disabled {
+            background: #eee;
+            border: 1px solid #aaa;
+            border-radius: 4px;
+            }"""
+
+class ExampleGUI(QtGui.QDialog):
+    def __init__(self, parent=None):
+        super(ExampleGUI, self).__init__(parent)
+        self.setGeometry(100,100,1300,900)
+        self.setWindowTitle('GUI layout')
+        self.win = QtGui.QWidget(self)
+        layout = QtGui.QGridLayout()
+        self.win.setLayout(layout)
+        guip_path = pathlib.Path.home().joinpath('.cellpose', 'cellpose_gui.png')
+        guip_path = str(guip_path.resolve())
+        pixmap = QtGui.QPixmap(guip_path)
+        label = QtGui.QLabel(self)
+        label.setPixmap(pixmap)
+        pixmap.scaled
+        layout.addWidget(label, 0, 0, 1, 1)
 
 class HelpWindow(QtGui.QDialog):
     def __init__(self, parent=None):
@@ -12,14 +128,15 @@ class HelpWindow(QtGui.QDialog):
         self.win = QtGui.QWidget(self)
         layout = QtGui.QGridLayout()
         self.win.setLayout(layout)
+        
         text = ('''
             <p class="has-line-data" data-line-start="5" data-line-end="6">Main GUI mouse controls:</p>
             <ul>
             <li class="has-line-data" data-line-start="7" data-line-end="8">Pan  = left-click  + drag</li>
-            <li class="has-line-data" data-line-start="8" data-line-end="9">Zoom = scroll wheel</li>
+            <li class="has-line-data" data-line-start="8" data-line-end="9">Zoom = scroll wheel (or +/= and - buttons) </li>
             <li class="has-line-data" data-line-start="9" data-line-end="10">Full view = double left-click</li>
             <li class="has-line-data" data-line-start="10" data-line-end="11">Select mask = left-click on mask</li>
-            <li class="has-line-data" data-line-start="11" data-line-end="12">Delete mask = Ctrl + left-click</li>
+            <li class="has-line-data" data-line-start="11" data-line-end="12">Delete mask = Ctrl (or COMMAND on Mac) + left-click</li>
             <li class="has-line-data" data-line-start="12" data-line-end="13">Start draw mask = right-click</li>
             <li class="has-line-data" data-line-start="13" data-line-end="15">End draw mask = right-click, or return to circle at beginning</li>
             </ul>
@@ -35,8 +152,16 @@ class HelpWindow(QtGui.QDialog):
             </thead>
             <tbody>
             <tr>
+            <td>=/+  button // - button</td>
+            <td>zoom in // zoom out</td>
+            </tr>
+            <tr>
             <td>CTRL+Z</td>
             <td>undo previously drawn mask/stroke</td>
+            </tr>
+            <tr>
+            <td>CTRL+Y</td>
+            <td>undo remove mask</td>
             </tr>
             <tr>
             <td>CTRL+0</td>
@@ -94,7 +219,7 @@ class HelpWindow(QtGui.QDialog):
             </table>
             <p class="has-line-data" data-line-start="36" data-line-end="37"><strong>Segmentation options (2D only) </strong></p>
             <p class="has-line-data" data-line-start="38" data-line-end="39">SIZE: you can manually enter the approximate diameter for your cells, or press “calibrate” to let the model estimate it. The size is represented by a disk at the bottom of the view window (can turn this disk of by unchecking “scale disk on”).</p>
-            <p class="has-line-data" data-line-start="40" data-line-end="41">use GPU: if you have specially installed the cuda version of mxnet, then you can activate this, but it won’t give huge speedups when running single images in the GUI.</p>
+            <p class="has-line-data" data-line-start="40" data-line-end="41">use GPU: if you have specially installed the cuda version of mxnet, then you can activate this, but it won’t give huge speedups when running single 2D images in the GUI.</p>
             <p class="has-line-data" data-line-start="42" data-line-end="43">MODEL: there is a <em>cytoplasm</em> model and a <em>nuclei</em> model, choose what you want to segment</p>
             <p class="has-line-data" data-line-start="44" data-line-end="45">CHAN TO SEG: this is the channel in which the cytoplasm or nuclei exist</p>
             <p class="has-line-data" data-line-start="46" data-line-end="47">CHAN2 (OPT): if <em>cytoplasm</em> model is chosen, then choose the nuclear channel for this option</p>
@@ -114,6 +239,7 @@ class TypeRadioButtons(QtGui.QButtonGroup):
         for b in range(len(self.bstr)):
             button = QtGui.QRadioButton(self.bstr[b])
             button.setStyleSheet('color: rgb(190,190,190);')
+            button.setFont(QtGui.QFont("Arial", 10))
             if b==0:
                 button.setChecked(True)
             self.addButton(button, b)
@@ -131,12 +257,13 @@ class RGBRadioButtons(QtGui.QButtonGroup):
         super(RGBRadioButtons, self).__init__()
         parent.color = 0
         self.parent = parent
-        self.bstr = ["image", "flowsXY", "cellprob", "flowsZ"]
+        self.bstr = ["image", "gradXY", "cellprob", "gradZ"]
         #self.buttons = QtGui.QButtonGroup()
         self.dropdown = []
         for b in range(len(self.bstr)):
             button = QtGui.QRadioButton(self.bstr[b])
             button.setStyleSheet('color: white;')
+            button.setFont(QtGui.QFont("Arial", 10))
             if b==0:
                 button.setChecked(True)
             self.addButton(button, b)
@@ -157,7 +284,24 @@ class ViewBoxNoRightDrag(pg.ViewBox):
         pg.ViewBox.__init__(self, None, border, lockAspect, enableMouse,
                             invertY, enableMenu, name, invertX)
         self.parent = parent
+        self.axHistoryPointer = -1
 
+    def keyPressEvent(self, ev):
+        """
+        This routine should capture key presses in the current view box.
+        The following events are implemented:
+        +/= : moves forward in the zooming stack (if it exists)
+        - : moves backward in the zooming stack (if it exists)
+
+        """
+        ev.accept()
+        if ev.text() == '-':
+            self.scaleBy([1.1, 1.1])
+        elif ev.text() in ['+', '=']:
+            self.scaleBy([0.9, 0.9])
+        else:
+            ev.ignore()
+    
     def mouseDragEvent(self, ev, axis=None):
         ## if axis is specified, event will only affect that axis.
         if self.parent is None or (self.parent is not None and not self.parent.in_stroke):
@@ -235,7 +379,7 @@ class ImageDraw(pg.ImageItem):
     def mouseClickEvent(self, ev):
         if self.parent.masksOn or self.parent.outlinesOn:
             if  self.parent.loaded and (ev.button()==QtCore.Qt.RightButton or 
-                    ev.modifiers() == QtCore.Qt.ShiftModifier):
+                    ev.modifiers() == QtCore.Qt.ShiftModifier and not ev.double()):
                 if not self.parent.in_stroke:
                     ev.accept()
                     self.create_start(ev.pos())
@@ -249,7 +393,8 @@ class ImageDraw(pg.ImageItem):
             elif not self.parent.in_stroke:
                 y,x = int(ev.pos().y()), int(ev.pos().x())
                 if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:
-                    if ev.button()==QtCore.Qt.LeftButton and ev.modifiers()==QtCore.Qt.ControlModifier:
+                    if (ev.button()==QtCore.Qt.LeftButton and ev.modifiers()==QtCore.Qt.ControlModifier
+                            and not ev.double()):
                         # delete mask selected
                         idx = self.parent.cellpix[self.parent.currentZ][y,x]
                         if idx > 0:
@@ -412,25 +557,27 @@ class RangeSlider(QtGui.QSlider):
         self.click_offset = 0
 
         self.setOrientation(QtCore.Qt.Vertical)
-        #self.setTickPosition(QtGui.QSlider.TicksRight)
-        self.setStyleSheet(\
-                "QSlider::handle:vertical {\
-                background-color: cyan;\
-                border: 1px solid white;\
-                border-radius: 2px;\
-                border-color: white;\
-                height: 16px;\
-                width: 3px;\
-                margin: 8px 2; \
-                }")
+        self.setTickPosition(QtGui.QSlider.TicksRight)
+        #self.setStyleSheet(\
+        #        "QSlider::handle:vertical {\
+        #        background-color: cyan;\
+        #        border: 1px solid white;\
+        #        border-radius: 2px;\
+        #        border-color: white;\
+        #        height: 16px;\
+        #        width: 3px;\
+        #        margin: 8px 2; \
+        #        }")
 
-
-        #self.opt = QtGui.QStyleOptionSlider()
-        #self.opt.orientation=QtCore.Qt.Vertical
-        #self.initStyleOption(self.opt)
+        # set groove color
+        
+        self.opt = QtGui.QStyleOptionSlider()
+        self.opt.orientation=QtCore.Qt.Vertical
+        self.initStyleOption(self.opt)
         # 0 for the low, 1 for the high, -1 for both
         self.active_slider = 0
         self.parent = parent
+        self.show()
 
 
     def level_change(self):
@@ -460,30 +607,39 @@ class RangeSlider(QtGui.QSlider):
         style = QtGui.QApplication.style()
 
         for i, value in enumerate([self._low, self._high]):
-            opt = QtGui.QStyleOptionSlider()
+            opt = QtWidgets.QStyleOptionSlider()
             self.initStyleOption(opt)
 
             # Only draw the groove for the first slider so it doesn't get drawn
             # on top of the existing ones every time
             if i == 0:
-                opt.subControls = QtGui.QStyle.SC_SliderHandle#QtGui.QStyle.SC_SliderGroove | QtGui.QStyle.SC_SliderHandle
+                opt.subControls = QtWidgets.QStyle.SC_SliderGroove | QtWidgets.QStyle.SC_SliderHandle
             else:
-                opt.subControls = QtGui.QStyle.SC_SliderHandle
+                opt.subControls = QtWidgets.QStyle.SC_SliderHandle
 
             if self.tickPosition() != self.NoTicks:
-                opt.subControls |= QtGui.QStyle.SC_SliderTickmarks
+                opt.subControls |= QtWidgets.QStyle.SC_SliderTickmarks
 
             if self.pressed_control:
                 opt.activeSubControls = self.pressed_control
-                opt.state |= QtGui.QStyle.State_Sunken
+                opt.state |= QtWidgets.QStyle.State_Sunken
             else:
                 opt.activeSubControls = self.hover_control
 
             opt.sliderPosition = value
             opt.sliderValue = value
-            style.drawComplexControl(QtGui.QStyle.CC_Slider, opt, painter, self)
 
-
+            if i==0:
+                pen = QtGui.QPen()
+                pen.setBrush(QtGui.QColor('#2e4f37'))
+                pen.setCapStyle(QtCore.Qt.RoundCap)
+                pen.setWidth(3)
+                painter.setPen(pen)
+                painter.setBrush(QtGui.QColor('#2e4f37'))
+                x1,y1,x2,y2 = event.rect().getCoords()
+                painter.drawRect(event.rect())
+            style.drawComplexControl(QtWidgets.QStyle.CC_Slider, opt, painter, self)
+            
     def mousePressEvent(self, event):
         event.accept()
 

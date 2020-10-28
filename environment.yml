@@ -1,18 +1,17 @@
 name: cellpose
 dependencies:
-  - python<=3.7
+  - python>3.4,<3.8
   - pip
-  - mkl=2019.3
-  - numpy
-  - scikit-image
+  - numpy<=1.16.6
   - numba>=0.43.1
   - pyqt
   - scipy
-  - matplotlib
   - pip:
     - mxnet-mkl
-    - opencv_python
-    - pyqtgraph
+    - opencv-python-headless
+    - pyqtgraph==0.11.0rc0
     - natsort
     - google-cloud-storage
     - tqdm
+    - tifffile
+    - cellpose

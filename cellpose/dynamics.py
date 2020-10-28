@@ -1,15 +1,15 @@
+import time, os
 from scipy.ndimage.filters import maximum_filter1d
 import scipy.ndimage
-import skimage.morphology
 import numpy as np
+import tifffile
 from tqdm import trange
-import time
 import mxnet as mx
 import mxnet.ndarray as nd
 from numba import njit, float32, int32, vectorize
 from . import utils, metrics
 
-@njit('(float64[:], int32[:], int32[:], int32, int32, int32, int32)')
+@njit('(float64[:], int32[:], int32[:], int32, int32, int32, int32)', nogil=True)
 def _extend_centers(T,y,x,ymed,xmed,Lx, niter):
     """ run diffusion from center of mask (ymed, xmed) on mask pixels (y, x)
 
@@ -53,8 +53,10 @@ def _extend_centers(T,y,x,ymed,xmed,Lx, niter):
                                             T[(y+1)*Lx + x-1] + T[(y+1)*Lx + x+1])
     return T
 
-def labels_to_flows(labels):
+def labels_to_flows(labels, files=None):
     """ convert labels (list of masks or flows) to flows for training model 
+
+    if files is not None, flows are saved to files to be reused
 
     Parameters
     --------------
@@ -66,8 +68,8 @@ def labels_to_flows(labels):
     Returns
     --------------
 
-    flows: list of [3 x Ly x Lx] arrays
-        flows[k][0] is cell probability, flows[k][1] is Y flow, and flows[k][2] is X flow
+    flows: list of [4 x Ly x Lx] arrays
+        flows[k][0] is labels[k], flows[k][1] is cell probability, flows[k][2] is Y flow, and flows[k][3] is X flow
 
     """
 
@@ -80,14 +82,15 @@ def labels_to_flows(labels):
         # compute flows        
         veci = [masks_to_flows(labels[n][0])[0] for n in trange(nimg)]
         # concatenate flows with cell probability
-        flows = [np.concatenate((labels[n][[0]]>0.5, veci[n]), axis=0).astype(np.float32)
+        flows = [np.concatenate((labels[n][[0]], labels[n][[0]]>0.5, veci[n]), axis=0).astype(np.float32)
                     for n in range(nimg)]
+        if files is not None:
+            for flow, file in zip(flows, files):
+                file_name = os.path.splitext(file)[0]
+                tifffile.imsave(file_name+'_flows.tif', flow)
     else:
         print('flows precomputed')
-        if labels[0].shape[0] > 3:
-            flows = [labels[n][1:].astype(np.float32) for n in range(nimg)]
-        else:
-            flows = [labels[n].astype(np.float32) for n in range(nimg)]
+        flows = [labels[n].astype(np.float32) for n in range(nimg)]
     return flows
 
 def masks_to_flows(masks):
@@ -120,55 +123,54 @@ def masks_to_flows(masks):
         Lz, Ly, Lx = masks.shape
         mu = np.zeros((3, Lz, Ly, Lx), np.float32)
         for z in range(Lz):
-            mu0,_ = masks_to_flows(masks[z])
+            mu0 = masks_to_flows(masks[z])[0]
             mu[[1,2], z] += mu0
         for y in range(Ly):
-            mu0,_ = masks_to_flows(masks[:,y])
+            mu0 = masks_to_flows(masks[:,y])[0]
             mu[[0,2], :, y] += mu0
         for x in range(Lx):
-            mu0,_ = masks_to_flows(masks[:,:,x])
+            mu0 = masks_to_flows(masks[:,:,x])[0]
             mu[[0,1], :, :, x] += mu0
         return mu, None
 
     Ly, Lx = masks.shape
     mu = np.zeros((2, Ly, Lx), np.float64)
     mu_c = np.zeros((Ly, Lx), np.float64)
-    # remove redundant labels
-    Y = np.reshape(np.unique(masks, return_inverse=True)[1], (Ly, Lx))
-    nmask = Y.max()
-    # pad T0 and mask by 2
-    T = np.zeros((Ly+2)*(Lx+2), np.float64)
-
-    Lx += 2
+    
+    nmask = masks.max()
+    slices = scipy.ndimage.find_objects(masks)
     dia = utils.diameters(masks)[0]
     s2 = (.15 * dia)**2
-    for k in range(nmask):
-        y,x = np.nonzero(Y==(k+1))
-        y = y.astype(np.int32) + 1
-        x = x.astype(np.int32) + 1
-        ymed = np.median(y)
-        xmed = np.median(x)
-        imin = np.argmin((x-xmed)**2 + (y-ymed)**2)
-        xmed = x[imin]
-        ymed = y[imin]
+    for i,si in enumerate(slices):
+        if si is not None:
+            sr,sc = si
+            ly, lx = sr.stop - sr.start + 1, sc.stop - sc.start + 1
+            y,x = np.nonzero(masks[sr, sc] == (i+1))
+            y = y.astype(np.int32) + 1
+            x = x.astype(np.int32) + 1
+            ymed = np.median(y)
+            xmed = np.median(x)
+            imin = np.argmin((x-xmed)**2 + (y-ymed)**2)
+            xmed = x[imin]
+            ymed = y[imin]
 
-        d2 = (x-xmed)**2 + (y-ymed)**2
-        mu_c[y-1,x-1] = np.exp(-d2/s2)
+            d2 = (x-xmed)**2 + (y-ymed)**2
+            mu_c[sr.start+y-1, sc.start+x-1] = np.exp(-d2/s2)
 
-        niter = 2*np.int32(np.ptp(x) + np.ptp(y))
-        T = _extend_centers(T, y, x, ymed, xmed, np.int32(Lx), niter)
+            niter = 2*np.int32(np.ptp(x) + np.ptp(y))
+            T = np.zeros((ly+2)*(lx+2), np.float64)
+            T = _extend_centers(T, y, x, ymed, xmed, np.int32(lx), niter)
+            T[(y+1)*lx + x+1] = np.log(1.+T[(y+1)*lx + x+1])
 
-        T[(y+1)*Lx + x+1] = np.log(1.+T[(y+1)*Lx + x+1])
-
-        dy = T[(y+1)*Lx + x] - T[(y-1)*Lx + x]
-        dx = T[y*Lx + x+1] - T[y*Lx + x-1]
-        mu[:,y-1, x-1] = np.stack((dy,dx))
-        T[y*Lx + x] = 0
+            dy = T[(y+1)*lx + x] - T[(y-1)*lx + x]
+            dx = T[y*lx + x+1] - T[y*lx + x-1]
+            mu[:, sr.start+y-1, sc.start+x-1] = np.stack((dy,dx))
 
     mu /= (1e-20 + (mu**2).sum(axis=0)**0.5)
+
     return mu, mu_c
 
-@njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)')
+@njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
 def steps3D(p, dP, inds, niter):
     """ run dynamics of pixels to recover masks in 3D
     
@@ -209,7 +211,7 @@ def steps3D(p, dP, inds, niter):
             p[2,z,y,x] = min(shape[2]-1, max(0, p[2,z,y,x] - dP[2,p0,p1,p2]))
     return p
 
-@njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32)')
+@njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32)', nogil=True)
 def steps2D(p, dP, inds, niter):
     """ run dynamics of pixels to recover masks in 2D
     
@@ -277,13 +279,14 @@ def follow_flows(dP, niter=200):
                 np.arange(shape[2]), indexing='ij')
         p = np.array(p).astype(np.float32)
         # run dynamics on subset of pixels
-        inds = np.array(np.nonzero((dP[0]!=0))).astype(np.int32).T
+        #inds = np.array(np.nonzero(dP[0]!=0)).astype(np.int32).T
+        inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32).T
         p = steps3D(p, dP, inds, niter)
     else:
         p = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
         p = np.array(p).astype(np.float32)
         # run dynamics on subset of pixels
-        inds = np.array(np.nonzero((dP[0]!=0))).astype(np.int32).T
+        inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32).T
         p = steps2D(p, dP, inds, niter)
     return p
 
@@ -321,7 +324,7 @@ def remove_bad_flow_masks(masks, flows, threshold=0.4):
     masks[np.isin(masks, badi)] = 0
     return masks
 
-def get_masks(p, rpad=20, threshold=0.4, flows=None):
+def get_masks(p, iscell=None, rpad=20, flows=None, threshold=0.4):
     """ create masks using pixel convergence after running dynamics
     
     Makes a histogram of final pixel locations p, initializes masks 
@@ -335,6 +338,10 @@ def get_masks(p, rpad=20, threshold=0.4, flows=None):
     p: float32, 3D or 4D array
         final locations of each pixel after dynamics,
         size [axis x Ly x Lx] or [axis x Lz x Ly x Lx].
+
+    iscell: bool, 2D or 3D array
+        if iscell is not None, set pixels that are 
+        iscell False to stay in their original location.
 
     rpad: int (optional, default 20)
         histogram edge padding
@@ -357,10 +364,21 @@ def get_masks(p, rpad=20, threshold=0.4, flows=None):
         size [Ly x Lx] or [Lz x Ly x Lx]
     
     """
+    
     pflows = []
     edges = []
     shape0 = p.shape[1:]
     dims = len(p)
+    if iscell is not None:
+        if dims==3:
+            inds = np.meshgrid(np.arange(shape0[0]), np.arange(shape0[1]),
+                np.arange(shape0[2]), indexing='ij')
+        elif dims==2:
+            inds = np.meshgrid(np.arange(shape0[0]), np.arange(shape0[1]),
+                     indexing='ij')
+        for i in range(dims):
+            p[i, ~iscell] = inds[i][~iscell]
+
     for i in range(dims):
         pflows.append(p[i].flatten().astype('int32'))
         edges.append(np.arange(-.5-rpad, shape0[i]+.5+rpad, 1))
@@ -410,53 +428,22 @@ def get_masks(p, rpad=20, threshold=0.4, flows=None):
     M = np.zeros(h.shape, np.int32)
     for k in range(len(pix)):
         M[pix[k]] = 1+k
-        #).sum())
-
+        
     for i in range(dims):
         pflows[i] = pflows[i] + rpad
     M0 = M[tuple(pflows)]
+    
+    # remove big masks
+    _,counts = np.unique(M0, return_counts=True)
+    big = np.prod(shape0) * 0.4
+    for i in np.nonzero(counts > big)[0]:
+        M0[M0==i] = 0
     _,M0 = np.unique(M0, return_inverse=True)
     M0 = np.reshape(M0, shape0)
 
-    if threshold > 0 and flows is not None:
+    if threshold is not None and threshold > 0 and flows is not None:
         M0 = remove_bad_flow_masks(M0, flows, threshold=threshold)
-    _,M0 = np.unique(M0, return_inverse=True)
-    
-    M0 = np.reshape(M0, shape0).astype(np.int32)
+        _,M0 = np.unique(M0, return_inverse=True)
+        M0 = np.reshape(M0, shape0).astype(np.int32)
+
     return M0
-
-def fill_holes(masks, min_size=15):
-    """ fill holes in masks (2D) and discard masks smaller than min_size
-    
-    fill holes in each mask using scipy.ndimage.morphology.binary_fill_holes
-    
-    Parameters
-    ----------------
-
-    masks: int, 2D array
-        labelled masks, 0=NO masks; 1,2,...=mask labels,
-        size [Ly x Lx]
-
-    min_size: int (optional, default 15)
-        minimum number of pixels per mask
-
-    Returns
-    ---------------
-
-    masks: int, 2D array
-        masks with holes filled and masks smaller than min_size removed, 
-        0=NO masks; 1,2,...=mask labels,
-        size [Ly x Lx]
-    
-    """
-
-    slices = scipy.ndimage.find_objects(masks)
-    i = 0
-    for sr, sc in slices:
-        msk = masks[sr, sc] == (i+1)
-        msk = scipy.ndimage.morphology.binary_fill_holes(msk)
-        sm = np.logical_and(msk, ~skimage.morphology.remove_small_objects(msk, min_size=min_size, connectivity=1))
-        masks[sr, sc][msk] = (i+1)
-        masks[sr, sc][sm] = 0
-        i+=1
-    return masks

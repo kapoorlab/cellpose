@@ -1,4 +1,4 @@
-import sys, os, pathlib, warnings, datetime, tempfile, glob
+import sys, os, pathlib, warnings, datetime, tempfile, glob, time
 import gc
 from natsort import natsorted
 from tqdm import tqdm
@@ -6,18 +6,21 @@ from tqdm import tqdm
 from PyQt5 import QtGui, QtCore, Qt, QtWidgets
 import pyqtgraph as pg
 from pyqtgraph import GraphicsScene
-import matplotlib.pyplot as plt
 
 import numpy as np
 import cv2
 from scipy.ndimage import gaussian_filter
-from skimage import io
-from skimage import draw
 
 import mxnet as mx
 from mxnet import nd
 
-from . import utils, transforms, models, guiparts, plot, menus, io
+from . import utils, transforms, models, guiparts, plot, menus, io, dynamics
+
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB = True
+except:
+    MATPLOTLIB = False
 
 try:
     from google.cloud import storage
@@ -101,9 +104,16 @@ def run(image=None):
     # Always start by initializing Qt (only once per application)
     warnings.filterwarnings("ignore")
     app = QtGui.QApplication(sys.argv)
-    icon_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), 'logo/logo.png'
-    )
+    icon_path = pathlib.Path.home().joinpath('.cellpose', 'logo.png')
+    guip_path = pathlib.Path.home().joinpath('.cellpose', 'cellpose_gui.png')
+    if not icon_path.is_file():
+        cp_dir = pathlib.Path.home().joinpath('.cellpose')
+        cp_dir.mkdir(exist_ok=True)
+        print('downloading logo')
+        utils.download_url_to_file('http://www.cellpose.org/static/images/cellpose_transparent.png', icon_path, progress=True)
+    if not guip_path.is_file():
+        utils.download_url_to_file('https://github.com/MouseLand/cellpose/raw/master/docs/_static/cellpose_gui.png', guip_path, progress=True)
+    icon_path = str(icon_path.resolve())
     app_icon = QtGui.QIcon()
     app_icon.addFile(icon_path, QtCore.QSize(16, 16))
     app_icon.addFile(icon_path, QtCore.QSize(24, 24))
@@ -135,9 +145,8 @@ class MainW(QtGui.QMainWindow):
         self.setWindowTitle("cellpose")
         self.cp_path = os.path.dirname(os.path.realpath(__file__))
         app_icon = QtGui.QIcon()
-        icon_path = os.path.abspath(os.path.join(
-            self.cp_path, "logo/logo.png")
-        )
+        icon_path = pathlib.Path.home().joinpath('.cellpose', 'logo.png')
+        icon_path = str(icon_path.resolve())
         app_icon.addFile(icon_path, QtCore.QSize(16, 16))
         app_icon.addFile(icon_path, QtCore.QSize(24, 24))
         app_icon.addFile(icon_path, QtCore.QSize(32, 32))
@@ -170,7 +179,7 @@ class MainW(QtGui.QMainWindow):
         self.l0 = QtGui.QGridLayout()
         self.cwidget.setLayout(self.l0)
         self.setCentralWidget(self.cwidget)
-        self.l0.setVerticalSpacing(4)
+        self.l0.setVerticalSpacing(6)
 
         self.imask = 0
 
@@ -188,7 +197,10 @@ class MainW(QtGui.QMainWindow):
         for i in range(3):
             self.cmap.append(make_cmap(i).getLookupTable(start=0.0, stop=255.0, alpha=False))
 
-        self.colormap = (plt.get_cmap('gist_ncar')(np.linspace(0.0,.9,1000)) * 255).astype(np.uint8)
+        if MATPLOTLIB:
+            self.colormap = (plt.get_cmap('gist_ncar')(np.linspace(0.0,.9,1000)) * 255).astype(np.uint8)
+        else:
+            self.colormap = ((np.random.rand(1000,3)*0.8+0.1)*255).astype(np.uint8)
         self.reset()
 
         self.is_stack = True # always loading images of same FOV
@@ -205,8 +217,21 @@ class MainW(QtGui.QMainWindow):
         HW = guiparts.HelpWindow(self)
         HW.show()
 
+    def gui_window(self):
+        EG = guiparts.ExampleGUI(self)
+        EG.show()
+
     def make_buttons(self):
-        self.boldfont = QtGui.QFont("Arial", 10, QtGui.QFont.Bold)
+        label_style = """QLabel{
+                            color: white
+                            } 
+                         QToolTip { 
+                           background-color: black; 
+                           color: white; 
+                           border: black solid 1px
+                           }"""
+        self.boldfont = QtGui.QFont("Arial", 12, QtGui.QFont.Bold)
+        self.medfont = QtGui.QFont("Arial", 10)
         self.smallfont = QtGui.QFont("Arial", 8)
         self.headings = ('color: rgb(150,255,150);')
         self.dropdowns = ("color: white;"
@@ -220,13 +245,13 @@ class MainW(QtGui.QMainWindow):
         label.setFont(self.boldfont)
         self.l0.addWidget(label, 0,0,1,1)
 
-        label = QtGui.QLabel('[W/S]')
-        label.setStyleSheet('color: white')
-        #label.setFont(self.smallfont)
+        label = QtGui.QLabel('[up/down or W/S]')
+        label.setStyleSheet(label_style)
+        label.setFont(self.smallfont)
         self.l0.addWidget(label, 1,0,1,1)
 
         label = QtGui.QLabel('[pageup/down]')
-        label.setStyleSheet('color: white')
+        label.setStyleSheet(label_style)
         label.setFont(self.smallfont)
         self.l0.addWidget(label, 1,1,1,1)
 
@@ -236,6 +261,7 @@ class MainW(QtGui.QMainWindow):
         self.RGBChoose = guiparts.RGBRadioButtons(self, b,1)
         self.RGBDropDown = QtGui.QComboBox()
         self.RGBDropDown.addItems(["RGB","gray","red","green","blue"])
+        self.RGBDropDown.setFont(self.medfont)
         self.RGBDropDown.currentIndexChanged.connect(self.color_choose)
         self.RGBDropDown.setFixedWidth(60)
         self.RGBDropDown.setStyleSheet(self.dropdowns)
@@ -263,9 +289,11 @@ class MainW(QtGui.QMainWindow):
         self.BrushChoose.currentIndexChanged.connect(self.brush_choose)
         self.BrushChoose.setFixedWidth(60)
         self.BrushChoose.setStyleSheet(self.dropdowns)
+        self.BrushChoose.setFont(self.medfont)
         self.l0.addWidget(self.BrushChoose, b, 1,1,1)
         label = QtGui.QLabel('brush size: [, .]')
-        label.setStyleSheet('color: white;')
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
         self.l0.addWidget(label, b,0,1,1)
 
         # cross-hair
@@ -276,6 +304,7 @@ class MainW(QtGui.QMainWindow):
         # turn on draw mode
         self.SCheckBox = QtGui.QCheckBox('single stroke')
         self.SCheckBox.setStyleSheet(self.checkstyle)
+        self.SCheckBox.setFont(self.medfont)
         self.SCheckBox.toggled.connect(self.autosave_on)
         self.l0.addWidget(self.SCheckBox, b,0,1,2)
 
@@ -283,6 +312,7 @@ class MainW(QtGui.QMainWindow):
         # turn on crosshairs
         self.CHCheckBox = QtGui.QCheckBox('cross-hairs')
         self.CHCheckBox.setStyleSheet(self.checkstyle)
+        self.CHCheckBox.setFont(self.medfont)
         self.CHCheckBox.toggled.connect(self.cross_hairs)
         self.l0.addWidget(self.CHCheckBox, b,0,1,1)
 
@@ -292,6 +322,7 @@ class MainW(QtGui.QMainWindow):
         self.masksOn = True
         self.MCheckBox = QtGui.QCheckBox('MASKS ON [X]')
         self.MCheckBox.setStyleSheet(self.checkstyle)
+        self.MCheckBox.setFont(self.medfont)
         self.MCheckBox.setChecked(True)
         self.MCheckBox.toggled.connect(self.toggle_masks)
         self.l0.addWidget(self.MCheckBox, b,0,1,2)
@@ -301,6 +332,7 @@ class MainW(QtGui.QMainWindow):
         self.outlinesOn = True
         self.OCheckBox = QtGui.QCheckBox('outlines on [Z]')
         self.OCheckBox.setStyleSheet(self.checkstyle)
+        self.OCheckBox.setFont(self.medfont)
         self.OCheckBox.setChecked(True)
         self.OCheckBox.toggled.connect(self.toggle_masks)
         self.l0.addWidget(self.OCheckBox, b,0,1,2)
@@ -326,11 +358,15 @@ class MainW(QtGui.QMainWindow):
 
         b+=1
         self.diameter = 30
-        label = QtGui.QLabel('cell diameter (pix):')
-        label.setStyleSheet('color: white;')
+        label = QtGui.QLabel('cell diameter (pixels) (click ENTER):')
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        label.setToolTip('you can manually enter the approximate diameter for your cells, \nor press “calibrate” to let the model estimate it. \nThe size is represented by a disk at the bottom of the view window \n(can turn this disk off by unchecking “scale disk on”)')
         self.l0.addWidget(label, b, 0,1,2)
         self.Diameter = QtGui.QLineEdit()
+        self.Diameter.setToolTip('you can manually enter the approximate diameter for your cells, \nor press “calibrate” to let the model estimate it. \nThe size is represented by a disk at the bottom of the view window \n(can turn this disk off by unchecking “scale disk on”)')
         self.Diameter.setText(str(self.diameter))
+        self.Diameter.setFont(self.medfont)
         self.Diameter.returnPressed.connect(self.compute_scale)
         self.Diameter.setFixedWidth(50)
         b+=1
@@ -348,8 +384,10 @@ class MainW(QtGui.QMainWindow):
         b+=1
         self.scale_on = True
         self.ScaleOn = QtGui.QCheckBox('scale disk on')
+        self.ScaleOn.setFont(self.medfont)
         self.ScaleOn.setStyleSheet('color: red;')
         self.ScaleOn.setChecked(True)
+        self.ScaleOn.setToolTip('see current diameter as red disk at bottom')
         self.ScaleOn.toggled.connect(self.toggle_scale)
         self.l0.addWidget(self.ScaleOn, b,0,1,2)
 
@@ -357,8 +395,17 @@ class MainW(QtGui.QMainWindow):
         b+=1
         self.useGPU = QtGui.QCheckBox('use GPU')
         self.useGPU.setStyleSheet(self.checkstyle)
+        self.useGPU.setFont(self.medfont)
+        self.useGPU.setToolTip('if you have specially installed the <i>cuda</i> version of mxnet, then you can activate this, but it won’t give huge speedups when running single 2D images in the GUI.')
         self.check_gpu()
-        self.l0.addWidget(self.useGPU, b,0,1,2)
+        self.l0.addWidget(self.useGPU, b,0,1,1)
+
+        # fast mode
+        self.NetAvg = QtGui.QComboBox()
+        self.NetAvg.addItems(['average 4 nets', 'run 1 net (fast)'])
+        self.NetAvg.setFont(self.medfont)
+        self.NetAvg.setToolTip('average 4 different fit networks or run 1 network to <i>increase</i> run speed')
+        self.l0.addWidget(self.NetAvg, b,1,1,1)
 
         b+=1
         # choose models
@@ -368,9 +415,13 @@ class MainW(QtGui.QMainWindow):
         self.ModelChoose.addItems(models)
         self.ModelChoose.setFixedWidth(70)
         self.ModelChoose.setStyleSheet(self.dropdowns)
+        self.ModelChoose.setFont(self.medfont)
         self.l0.addWidget(self.ModelChoose, b, 1,1,1)
         label = QtGui.QLabel('model: ')
-        label.setStyleSheet('color: white;')
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        label.setToolTip('there is a <em>cytoplasm</em> model and a <em>nuclei</em> model, choose what you want to segment')
+        self.ModelChoose.setToolTip('there is a <em>cytoplasm</em> model and a <em>nuclei</em> model, choose what you want to segment')
         self.l0.addWidget(label, b, 0,1,1)
 
         b+=1
@@ -378,12 +429,20 @@ class MainW(QtGui.QMainWindow):
         self.ChannelChoose = [QtGui.QComboBox(), QtGui.QComboBox()]
         self.ChannelChoose[0].addItems(['gray','red','green','blue'])
         self.ChannelChoose[1].addItems(['none','red','green','blue'])
-        cstr = ['chan to seg', 'chan2 (opt)']
+        cstr = ['chan to segment:', 'chan2 (optional): ']
         for i in range(2):
             self.ChannelChoose[i].setFixedWidth(70)
             self.ChannelChoose[i].setStyleSheet(self.dropdowns)
+            self.ChannelChoose[i].setFont(self.medfont)
             label = QtGui.QLabel(cstr[i])
-            label.setStyleSheet('color: white;')
+            label.setStyleSheet(label_style)
+            label.setFont(self.medfont)
+            if i==0:
+                label.setToolTip('this is the channel in which the cytoplasm or nuclei exist that you want to segment')
+                self.ChannelChoose[i].setToolTip('this is the channel in which the cytoplasm or nuclei exist that you want to segment')
+            else:
+                label.setToolTip('if <em>cytoplasm</em> model is chosen, and you also have a nuclear channel, then choose the nuclear channel for this option')
+                self.ChannelChoose[i].setToolTip('if <em>cytoplasm</em> model is chosen, and you also have a nuclear channel, then choose the nuclear channel for this option')
             self.l0.addWidget(label, b, 0,1,1)
             self.l0.addWidget(self.ChannelChoose[i], b, 1,1,1)
             b+=1
@@ -392,6 +451,7 @@ class MainW(QtGui.QMainWindow):
         b+=1
         self.invert = QtGui.QCheckBox('invert grayscale')
         self.invert.setStyleSheet(self.checkstyle)
+        self.invert.setFont(self.medfont)
         self.l0.addWidget(self.invert, b,0,1,2)
 
         b+=1
@@ -407,16 +467,62 @@ class MainW(QtGui.QMainWindow):
         self.progress.setStyleSheet('color: gray;')
         self.l0.addWidget(self.progress, b,0,1,2)
 
+        # post-hoc paramater tuning
+
+        b+=1
+        label = QtGui.QLabel('model match threshold:')
+        label.setToolTip('threshold on gradient match to accept a mask (set lower to get more cells)')
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        self.l0.addWidget(label, b, 0,1,2)
+
+        b+=1
+        self.threshold = 0.4
+        self.threshslider = QtGui.QSlider()
+        self.threshslider.setOrientation(QtCore.Qt.Horizontal)
+        self.threshslider.setMinimum(1.0)
+        self.threshslider.setMaximum(30.0)
+        self.threshslider.setValue(31 - 4)
+        self.l0.addWidget(self.threshslider, b, 0,1,2)
+        self.threshslider.valueChanged.connect(self.compute_cprob)
+        self.threshslider.setStyleSheet(guiparts.horizontal_slider_style())
+        self.threshslider.setEnabled(False)
+        
+        b+=1
+        label = QtGui.QLabel('cell prob threshold:')
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        self.l0.addWidget(label, b, 0,1,2)
+        label.setToolTip('cell probability threshold (set lower to get more cells)')
+        
+        b+=1
+        self.probslider = QtGui.QSlider()
+        self.probslider.setOrientation(QtCore.Qt.Horizontal)
+        self.probslider.setMinimum(-6.0)
+        self.probslider.setMaximum(6.0)
+        self.probslider.setValue(0.0)
+        self.cellprob = 0.0
+        self.l0.addWidget(self.probslider, b, 0,1,2)
+        self.probslider.valueChanged.connect(self.compute_cprob)
+        self.probslider.setStyleSheet(guiparts.horizontal_slider_style())
+        self.probslider.setEnabled(False)
+
+        b+=1
+        line = QHLine()
+        line.setStyleSheet('color: white;')
+        self.l0.addWidget(line, b,0,1,2)
+
         self.autobtn = QtGui.QCheckBox('auto-adjust')
         self.autobtn.setStyleSheet(self.checkstyle)
+        self.autobtn.setFont(self.medfont)
         self.autobtn.setChecked(True)
         self.l0.addWidget(self.autobtn, b+2,0,1,1)
 
         b+=1
-        label = QtGui.QLabel('saturation')
+        label = QtGui.QLabel('Image saturation:')
         label.setStyleSheet(self.headings)
         label.setFont(self.boldfont)
-        self.l0.addWidget(label, b,1,1,1)
+        self.l0.addWidget(label, b,0,1,2)
 
         b+=1
         self.slider = guiparts.RangeSlider(self)
@@ -427,13 +533,13 @@ class MainW(QtGui.QMainWindow):
         self.slider.setTickPosition(QtGui.QSlider.TicksRight)
         self.l0.addWidget(self.slider, b,1,1,1)
         self.l0.setRowStretch(b, 1)
-
+        
         b+=2
         # add z position underneath
         self.currentZ = 0
         label = QtGui.QLabel('Z:')
         label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-        label.setStyleSheet('color: white;')
+        label.setStyleSheet(label_style)
         self.l0.addWidget(label, b, 0,1,1)
         self.zpos = QtGui.QLineEdit()
         self.zpos.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
@@ -531,6 +637,8 @@ class MainW(QtGui.QMainWindow):
                         self.undo_action()
                     if event.key() == QtCore.Qt.Key_0:
                         self.clear_all()
+        if event.key() == QtCore.Qt.Key_Minus or event.key() == QtCore.Qt.Key_Equal:
+            self.p0.keyPressEvent(event)
 
     def check_gpu(self):
         if utils.use_gpu():
@@ -549,13 +657,13 @@ class MainW(QtGui.QMainWindow):
 
     def calibrate_size(self):
         self.initialize_model()
-        diams, _ = self.model.sz.eval([self.stack[self.currentZ].copy()], invert=self.invert.isChecked(),
+        diams, _ = self.model.sz.eval(self.stack[self.currentZ].copy(), invert=self.invert.isChecked(),
                                    channels=self.get_channels(), progress=self.progress)
         diams = np.maximum(5.0, diams)
         print('estimated diameter of cells using %s model = %0.1f pixels'%
                 (self.current_model, diams))
-        self.Diameter.setText('%0.1f'%diams[0])
-        self.diameter = diams[0]
+        self.Diameter.setText('%0.1f'%diams)
+        self.diameter = diams
         self.compute_scale()
         self.progress.setValue(100)
 
@@ -588,7 +696,10 @@ class MainW(QtGui.QMainWindow):
         else:
             # remove previous cell
             if self.ncells> 0:
-                self.remove_cell(self.ncells-1)
+                self.remove_cell(self.ncells)
+
+    def undo_remove_action(self):
+        self.undo_remove_cell()
 
     def get_files(self):
         images = []
@@ -676,6 +787,8 @@ class MainW(QtGui.QMainWindow):
         self.p0.addItem(self.layer)
         self.p0.addItem(self.scale)
 
+        guiparts.make_quadrants(self)
+
     def reset(self):
         # ---- start sets of points ---- #
         self.selected = 0
@@ -690,6 +803,7 @@ class MainW(QtGui.QMainWindow):
         self.stroke_appended = True
         self.ncells = 0
         self.zdraw = []
+        self.removed_cell = []
         self.cellcolors = [np.array([255,255,255])]
         # -- set menus to default -- #
         self.color = 0
@@ -707,7 +821,7 @@ class MainW(QtGui.QMainWindow):
         if self.autobtn.isChecked():
             self.saturation = [[0,255] for n in range(self.NZ)]
         self.currentZ = 0
-        self.flows = [[],[],[],[]]
+        self.flows = [[],[],[],[],[[]]]
         self.stack = np.zeros((1,self.Ly,self.Lx,3))
         # masks matrix
         self.layers = 0*np.ones((1,self.Ly,self.Lx,4), np.uint8)
@@ -774,7 +888,6 @@ class MainW(QtGui.QMainWindow):
     def remove_cell(self, idx):
         # remove from manual array
         self.selected = 0
-        self.ismanual = np.delete(self.ismanual, idx-1)
         for z in range(self.NZ):
             cp = self.cellpix[z]==idx
             op = self.outpix[z]==idx
@@ -787,6 +900,11 @@ class MainW(QtGui.QMainWindow):
             self.cellpix[z, self.cellpix[z]>idx] -= 1
             self.outpix[z, self.outpix[z]>idx] -= 1
         self.update_plot()
+        if self.NZ==1:
+            self.removed_cell = [self.ismanual[idx-1], self.cellcolors[idx], np.nonzero(cp), np.nonzero(op)]
+            self.redo.setEnabled(True)
+        # remove cell from lists
+        self.ismanual = np.delete(self.ismanual, idx-1)
         del self.cellcolors[idx]
         del self.zdraw[idx-1]
         self.ncells -= 1
@@ -795,6 +913,25 @@ class MainW(QtGui.QMainWindow):
             self.ClearButton.setEnabled(False)
         if self.NZ==1:
             io._save_sets(self)
+
+    def undo_remove_cell(self):
+        if len(self.removed_cell) > 0:
+            z = 0
+            ar, ac = self.removed_cell[2]
+            vr, vc = self.removed_cell[3]
+            color = self.removed_cell[1]
+            self.draw_mask(z, ar, ac, vr, vc, color)
+            self.toggle_mask_ops()
+            self.cellcolors.append(color)
+            self.ncells+=1
+            self.ismanual = np.append(self.ismanual, self.removed_cell[0])
+            self.zdraw.append([])
+            print('added back removed cell')
+            self.update_plot()
+            io._save_sets(self)
+            self.removed_cell = []
+            self.redo.setEnabled(False)
+
 
     def remove_stroke(self, delete_points=True):
         #self.current_stroke = get_unique_points(self.current_stroke)
@@ -875,9 +1012,9 @@ class MainW(QtGui.QMainWindow):
             self.img.setLevels(self.saturation[self.currentZ])
         else:
             image = np.zeros((self.Ly,self.Lx), np.uint8)
-            if hasattr(self, 'flows') and len(self.flows[self.view-1])>0:
+            if len(self.flows)>=self.view-1 and len(self.flows[self.view-1])>0:
                 image = self.flows[self.view-1][self.currentZ]
-            if self.view>2:
+            if self.view>1:
                 self.img.setImage(image, autoLevels=False, lut=self.bwr)
             else:
                 self.img.setImage(image, autoLevels=False, lut=None)
@@ -887,8 +1024,8 @@ class MainW(QtGui.QMainWindow):
         #self.img.set_ColorMap(self.bwr)
         if self.masksOn or self.outlinesOn:
             self.layer.setImage(self.layers[self.currentZ], autoLevels=False)
-        self.slider.setLow(self.saturation[self.currentZ][0])
-        self.slider.setHigh(self.saturation[self.currentZ][1])
+        #self.slider.setLow(self.saturation[self.currentZ][0])
+        #self.slider.setHigh(self.saturation[self.currentZ][1])
         self.win.show()
         self.show()
 
@@ -897,17 +1034,19 @@ class MainW(QtGui.QMainWindow):
             self.current_point_set = np.array(self.current_point_set)
             while len(self.strokes) > 0:
                 self.remove_stroke(delete_points=False)
-            col_rand = np.random.randint(1000)
-            color = self.colormap[col_rand,:3]
-            median = self.add_mask(points=self.current_point_set, color=color)
-            if median is not None:
-                self.toggle_mask_ops()
-                self.cellcolors.append(color)
-                self.ncells+=1
-                self.ismanual = np.append(self.ismanual, True)
-                if self.NZ==1:
-                    # only save after each cell if single image
-                    io._save_sets(self)
+            if len(self.current_point_set) > 8:
+                col_rand = np.random.randint(1000)
+                color = self.colormap[col_rand,:3]
+                median = self.add_mask(points=self.current_point_set, color=color)
+                if median is not None:
+                    self.removed_cell = []
+                    self.toggle_mask_ops()
+                    self.cellcolors.append(color)
+                    self.ncells+=1
+                    self.ismanual = np.append(self.ismanual, True)
+                    if self.NZ==1:
+                        # only save after each cell if single image
+                        io._save_sets(self)
             self.current_stroke = []
             self.strokes = []
             self.current_point_set = []
@@ -929,9 +1068,17 @@ class MainW(QtGui.QMainWindow):
             iz = points[:,0] == z
             vr = points[iz,1]
             vc = points[iz,2]
-
-            vr, vc = draw.polygon_perimeter(vr, vc, self.layers[z].shape[:2])
-            ar, ac = draw.polygon(vr, vc, self.layers[z].shape[:2])
+            # get points inside drawn points
+            mask = np.zeros((np.ptp(vr)+4, np.ptp(vc)+4), np.uint8)
+            pts = np.stack((vc-vc.min()+2,vr-vr.min()+2), axis=-1)[:,np.newaxis,:]
+            mask = cv2.fillPoly(mask, [pts], (255,0,0))
+            ar, ac = np.nonzero(mask)
+            ar, ac = ar+vr.min()-2, ac+vc.min()-2
+            # get dense outline
+            contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            pvc, pvr = contours[0][0].squeeze().T            
+            vr, vc = pvr + vr.min() - 2, pvc + vc.min() - 2
+            # concatenate all points
             ar, ac = np.hstack((np.vstack((vr, vc)), np.vstack((ar, ac))))
             # if these pixels are overlapping with another cell, reassign them
             ioverlap = self.cellpix[z][ar, ac] > 0
@@ -943,10 +1090,9 @@ class MainW(QtGui.QMainWindow):
                 # compute outline of new mask
                 mask = np.zeros((np.ptp(ar)+4, np.ptp(ac)+4), np.uint8)
                 mask[ar-ar.min()+2, ac-ac.min()+2] = 1
-                outlines = plot.masks_to_outlines(mask)
-                vr, vc = np.nonzero(outlines)
-                vr, vc = vr + ar.min() - 2, vc + ac.min() - 2
-
+                contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+                pvc, pvr = contours[0][0].squeeze().T            
+                vr, vc = pvr + ar.min() - 2, pvc + ac.min() - 2
             self.draw_mask(z, ar, ac, vr, vc, color)
 
             median.append(np.array([np.median(ar), np.median(ac)]))
@@ -967,7 +1113,7 @@ class MainW(QtGui.QMainWindow):
                     mask[ar[ioverlap], ac[ioverlap]] = 0
                     ar, ac = ar[~ioverlap], ac[~ioverlap]
                 # compute outline of mask
-                outlines = plot.masks_to_outlines(mask)
+                outlines = utils.masks_to_outlines(mask)
                 vr, vc = np.nonzero(outlines)
                 vr, vc = vr+ymin, vc+xmin
                 ar, ac = ar+ymin, ac+xmin
@@ -1064,9 +1210,45 @@ class MainW(QtGui.QMainWindow):
             print(self.current_model)
             self.model = models.Cellpose(device=device, model_type=self.current_model)
 
+    def compute_cprob(self):
+        rerun = False
+        if self.cellprob != self.probslider.value():
+            rerun = True
+            self.cellprob = self.probslider.value()
+        if self.threshold != (31 - self.threshslider.value())/10.:
+            rerun = True
+            self.threshold = (31 - self.threshslider.value())/10.
+        if not rerun:
+            return
+        
+        if self.threshold==3.0 or self.NZ>1:
+            thresh = None
+            print('computing masks with cell prob=%0.3f, no flow error threshold'%
+                    (self.cellprob))
+        else:
+            thresh = self.threshold
+            print('computing masks with cell prob=%0.3f, flow error threshold=%0.3f'%
+                    (self.cellprob, thresh))
+        maski = dynamics.get_masks(self.flows[3].copy(), iscell=(self.flows[4][-1]>self.cellprob),
+                                    flows=self.flows[4][:-1], threshold=thresh)
+        if self.NZ==1:
+            maski = utils.fill_holes_and_remove_small_masks(maski)
+        maski = transforms.resize_image(maski, self.cellpix.shape[-2], self.cellpix.shape[-1],
+                                        interpolation=cv2.INTER_NEAREST)
+        self.masksOn = True
+        self.outlinesOn = True
+        self.MCheckBox.setChecked(True)
+        self.OCheckBox.setChecked(True)
+        if maski.ndim<3:
+            maski = maski[np.newaxis,...]
+        print('%d cells found'%(len(np.unique(maski)[1:])))
+        io._masks_to_gui(self, maski, outlines=None)
+        self.show()
+
     def compute_model(self):
         self.progress.setValue(0)
         if 1:
+            tic=time.time()
             self.clear_all()
             self.flows = [[],[],[]]
             self.initialize_model()
@@ -1078,13 +1260,15 @@ class MainW(QtGui.QMainWindow):
                 do_3D = True
                 data = self.stack.copy()
             else:
-                data = [self.stack[0].copy()]
+                data = self.stack[0].copy()
             channels = self.get_channels()
             self.diameter = float(self.Diameter.text())
             try:
+                net_avg = 1 - self.NetAvg.currentIndex()
                 masks, flows, _, _ = self.model.eval(data, channels=channels,
-                                                diameter=self.diameter, invert=self.invert.isChecked(),
-                                                do_3D=do_3D, progress=self.progress)
+                                                    diameter=self.diameter, invert=self.invert.isChecked(),
+                                                    net_avg=net_avg, augment=False,
+                                                    do_3D=do_3D, progress=self.progress)
             except Exception as e:
                 print('NET ERROR: %s'%e)
                 self.progress.setValue(0)
@@ -1092,19 +1276,28 @@ class MainW(QtGui.QMainWindow):
 
             self.progress.setValue(75)
 
+            #if not do_3D:
+            #    masks = masks[0][np.newaxis,:,:]
+            #    flows = flows[0]
             if not do_3D:
-                masks = masks[0][np.newaxis,:,:]
-                flows = flows[0]
-            self.flows[0] = flows[0]
+                masks = masks[np.newaxis,...]
+            self.flows[0] = transforms.resize_image(flows[0].copy(), masks.shape[-2], masks.shape[-1],
+                                                    interpolation=cv2.INTER_NEAREST)
             self.flows[1] = (np.clip(utils.normalize99(flows[2]),0,1) * 255).astype(np.uint8)
+            self.flows[1] = transforms.resize_image(self.flows[1], masks.shape[-2], masks.shape[-1],
+                                                    interpolation=cv2.INTER_NEAREST)
             if not do_3D:
-                self.flows[2] = np.zeros(flows[1][0].shape, dtype=np.uint8)
+                self.flows[2] = np.zeros(masks.shape[1:], dtype=np.uint8)
                 self.flows = [self.flows[n][np.newaxis,...] for n in range(len(self.flows))]
             else:
                 self.flows[2] = (flows[1][0]/10 * 127 + 127).astype(np.uint8)
-
-
-            print('%d cells found with unet'%(len(np.unique(masks)[1:])))
+                self.flows[2] = transforms.resize_image(self.flows[2], masks.shape[-2], masks.shape[-1],
+                                                        interpolation=cv2.INTER_NEAREST)
+            if len(flows)>2:
+                self.flows.append(flows[3])
+                self.flows.append(np.concatenate((flows[1], flows[2][np.newaxis,...]), axis=0))
+                
+            print('%d cells found with cellpose net in %0.3f sec'%(len(np.unique(masks)[1:]), time.time()-tic))
             self.progress.setValue(80)
             z=0
             self.masksOn = True
@@ -1116,7 +1309,10 @@ class MainW(QtGui.QMainWindow):
             self.progress.setValue(100)
 
             self.toggle_server(off=True)
-        else:#except Exception as e:
+            if not do_3D:
+                self.threshslider.setEnabled(True)
+                self.probslider.setEnabled(True)
+        else: #except Exception as e:
             print('ERROR: %s'%e)
 
 
@@ -1130,6 +1326,7 @@ class MainW(QtGui.QMainWindow):
         self.loadMasks.setEnabled(True)
         self.saveSet.setEnabled(True)
         self.savePNG.setEnabled(True)
+        self.saveOutlines.setEnabled(True)
         self.toggle_mask_ops()
 
         self.update_plot()

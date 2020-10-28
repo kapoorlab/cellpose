@@ -1,6 +1,5 @@
 from PyQt5 import QtGui, QtCore, Qt, QtWidgets
-
-from . import io
+from . import io, utils
 
 def mainmenu(parent):
     main_menu = parent.menuBar()
@@ -39,6 +38,12 @@ def mainmenu(parent):
     file_menu.addAction(parent.savePNG)
     parent.savePNG.setEnabled(False)
 
+    parent.saveOutlines = QtGui.QAction("Save &Outlines as text for imageJ", parent)
+    parent.saveOutlines.setShortcut("Ctrl+O")
+    parent.saveOutlines.triggered.connect(lambda: io._save_outlines(parent))
+    file_menu.addAction(parent.saveOutlines)
+    parent.saveOutlines.setEnabled(False)
+
     parent.saveServer = QtGui.QAction("Send manually labelled data to server", parent)
     parent.saveServer.triggered.connect(lambda: io.save_server(parent))
     file_menu.addAction(parent.saveServer)
@@ -52,6 +57,12 @@ def editmenu(parent):
     parent.undo.triggered.connect(parent.undo_action)
     parent.undo.setEnabled(False)
     edit_menu.addAction(parent.undo)
+
+    parent.redo = QtGui.QAction('Undo remove mask', parent)
+    parent.redo.setShortcut("Ctrl+Y")
+    parent.redo.triggered.connect(parent.undo_remove_action)
+    parent.redo.setEnabled(False)
+    edit_menu.addAction(parent.redo)
 
     parent.ClearButton = QtGui.QAction('Clear all masks', parent)
     parent.ClearButton.setShortcut("Ctrl+0")
@@ -68,7 +79,17 @@ def editmenu(parent):
 def helpmenu(parent):
     main_menu = parent.menuBar()
     help_menu = main_menu.addMenu("&Help")
+    
+    checkMKL = QtGui.QAction("Check CPU mxnet-mkl -- see terminal", parent)
+    checkMKL.triggered.connect(utils.check_mkl)
+    help_menu.addAction(checkMKL)
+
     openHelp = QtGui.QAction("&Help window", parent)
     openHelp.setShortcut("Ctrl+H")
     openHelp.triggered.connect(parent.help_window)
     help_menu.addAction(openHelp)
+
+    openGUI = QtGui.QAction("&GUI layout", parent)
+    openGUI.setShortcut("Ctrl+G")
+    openGUI.triggered.connect(parent.gui_window)
+    help_menu.addAction(openGUI)

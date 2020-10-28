@@ -1,15 +1,25 @@
 import os
 import numpy as np
-from matplotlib.colors import hsv_to_rgb, rgb_to_hsv
 import cv2
 from scipy.ndimage import gaussian_filter
 import scipy
-import skimage.io
-from skimage import draw
-from skimage.segmentation import find_boundaries
+import colorsys
 
-from . import utils
+from . import utils, io
 
+def rgb_to_hsv(arr):
+    rgb_to_hsv_channels = np.vectorize(colorsys.rgb_to_hsv)
+    r, g, b = np.rollaxis(arr, axis=-1)
+    h, s, v = rgb_to_hsv_channels(r, g, b)
+    hsv = np.stack((h,s,v), axis=-1)
+    return hsv
+
+def hsv_to_rgb(arr):
+    hsv_to_rgb_channels = np.vectorize(colorsys.hsv_to_rgb)
+    h, s, v = np.rollaxis(arr, axis=-1)
+    r, g, b = hsv_to_rgb_channels(h, s, v)
+    rgb = np.stack((r,g,b), axis=-1)
+    return rgb
 
 def show_segmentation(fig, img, maski, flowi, channels=[0,0], file_name=None):
     """ plot segmentation results (like on website)
@@ -52,7 +62,7 @@ def show_segmentation(fig, img, maski, flowi, channels=[0,0], file_name=None):
     ax.set_title('original image')
     ax.axis('off')
 
-    outlines = masks_to_outlines(maski)
+    outlines = utils.masks_to_outlines(maski)
     overlay = mask_overlay(img0, maski)
 
     ax = fig.add_subplot(1,4,2)
@@ -77,9 +87,47 @@ def show_segmentation(fig, img, maski, flowi, channels=[0,0], file_name=None):
 
     if file_name is not None:
         save_path = os.path.splitext(file_name)[0]
-        skimage.io.imsave(save_path + '_overlay.jpg', overlay)
-        skimage.io.imsave(save_path + '_outlines.jpg', imgout)
-        skimage.io.imsave(save_path + '_flows.jpg', flowi)
+        io.imsave(save_path + '_overlay.jpg', overlay)
+        io.imsave(save_path + '_outlines.jpg', imgout)
+        io.imsave(save_path + '_flows.jpg', flowi)
+
+def mask_rgb(masks, colors=None):
+    """ masks in random rgb colors
+
+    Parameters
+    ----------------
+
+    masks: int, 2D array
+        masks where 0=NO masks; 1,2,...=mask labels
+
+    colors: int, 2D array (optional, default None)
+        size [nmasks x 3], each entry is a color in 0-255 range
+
+    Returns
+    ----------------
+
+    RGB: uint8, 3D array
+        array of masks overlaid on grayscale image
+
+    """
+    if colors is not None:
+        if colors.max()>1:
+            colors = np.float32(colors)
+            colors /= 255
+        colors = rgb_to_hsv(colors)
+    
+    HSV = np.zeros((masks.shape[0], masks.shape[1], 3), np.float32)
+    HSV[:,:,2] = 1.0
+    for n in range(int(masks.max())):
+        ipix = (masks==n+1).nonzero()
+        if colors is None:
+            HSV[ipix[0],ipix[1],0] = np.random.rand()
+        else:
+            HSV[ipix[0],ipix[1],0] = colors[n,0]
+        HSV[ipix[0],ipix[1],1] = np.random.rand()*0.5+0.5
+        HSV[ipix[0],ipix[1],2] = np.random.rand()*0.5+0.5
+    RGB = (hsv_to_rgb(HSV) * 255).astype(np.uint8)
+    return RGB
 
 def mask_overlay(img, masks, colors=None):
     """ overlay masks on image (set image to grayscale)
@@ -126,7 +174,6 @@ def mask_overlay(img, masks, colors=None):
         HSV[ipix[0],ipix[1],1] = 1.0
     RGB = (hsv_to_rgb(HSV) * 255).astype(np.uint8)
     return RGB
-
 
 def image_to_rgb(img0, channels=[0,0]):
     """ image is 2 x Ly x Lx or Ly x Lx x 2 - change to RGB Ly x Lx x 3 """
@@ -187,42 +234,3 @@ def dx_to_circ(dP):
     HSV = np.clip(HSV, 0.0, 1.0)
     flow = (hsv_to_rgb(HSV)*255).astype(np.uint8)
     return flow
-
-def masks_to_outlines(masks):
-    """ get outlines of masks as a 0-1 array 
-    
-    Parameters
-    ----------------
-
-    masks: int, 2D array 
-        size [Ly x Lx], 0=NO masks; 1,2,...=mask labels
-
-    Returns
-    ----------------
-
-    outlines: bool, 2D array
-        size [Ly x Lx], True pixels are outlines
-
-    """
-    outlines = np.zeros(masks.shape, np.bool)
-    outlines[find_boundaries(masks, mode='inner')] = 1
-    return outlines
-
-def outlines_list(masks):
-    """ get outlines of masks as a list to loop over for plotting """
-    outpix=[]
-    for n in np.unique(masks)[1:]:
-        mn = masks==n
-        if mn.sum() > 0:
-            contours, _ = cv2.findContours(mn.astype(np.uint8), mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
-            #contours = measure.find_contours(mn, 0.5)
-            cmax = np.argmax([c.shape[0] for c in contours])
-            pix = contours[cmax].astype(int).squeeze()
-            if len(pix)>4:
-                pix=pix[:,::-1]
-                pix = draw.polygon_perimeter(pix[:,0], pix[:,1], (mn.shape[0], mn.shape[1]))
-                pix = np.array(pix).T[:,::-1]
-                outpix.append(pix)
-            else:
-                outpix.append(np.zeros((0,2)))
-    return outpix

@@ -1,6 +1,11 @@
 Outputs
 -------------------------
 
+Internally, the network predicts 3 (or 4) outputs: 
+(flows in Z), flows in Y, flows in X, and cellprob. 
+The predictions the network makes of cellprob are the inputs to a sigmoid 
+centered at zero (1 / (1 + e^-x)), so they vary from around -6 to +6.
+
 _seg.npy output 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -13,7 +18,8 @@ _seg.npy output
 - *outlines* : outlines of masks (0 = NO outline; 1,2,... = outline labels)
 - *chan_choose* : channels that you chose in GUI (0=gray/none, 1=red, 2=green, 3=blue)
 - *ismanual* : element *k* = whether or not mask *k* was manually drawn or computed by the cellpose algorithm
-- *flows* : flows[0] is XY flow in RGB, flows[1] is the cell probability in range 0-255 instead of 0.0 to 1.0, flows[2] is Z flow in range 0-255 (if it exists)
+- *flows* : flows[0] is XY flow in RGB, flows[1] is the cell probability in range 0-255 instead of 0.0 to 1.0, flows[2] is Z flow in range 0-255 (if it exists, otherwise zeros), 
+            flows[3] is [dY, dX, cellprob] (or [dZ, dY, dX, cellprob] for 3D), flows[4] is pixel destinations (for internal use)
 - *est_diam* : estimated diameter (if run on command line)
 - *zdraw* : for each mask, which planes were manually labelled (planes in between manually drawn have interpolated masks)
 
@@ -59,6 +65,35 @@ Or use the function below if running in a notebook
     from cellpose import io
     io.save_to_png(images, masks, flows, image_names)
 
+ROI manager compatible output for ImageJ
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can save the outlines of masks in a text file that's compatible with ImageJ 
+ROI Manager in the GUI File menu.
+
+To save using the command line, add the flag ``--save_png``.
+
+Or use the function below if running in a notebook
+
+::
+
+    from cellpose import io, plot
+
+    # image_name is file name of image 
+    # masks is numpy array of masks for image
+    base = os.path.splitext(image_name)[0]
+    outlines = plot.outlines_list(masks)
+    io.outlines_to_text(base, outlines)
+    
+To load this ``_cp_outlines.txt`` file into ImageJ, use the python script 
+provided in cellpose: ``imagej_roi_converter.py``. Run this as a macro after 
+opening your image file. It will ask you to input the path to the ``_cp_outlines.txt`` 
+file. Input that and the ROIs will appear in the ROI manager.
+
+.. image:: _static/cellpose_to_imagej.gif
+    :width: 600px
+    :align: center
+    :alt: cellpose to imagej
 
 Plotting functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

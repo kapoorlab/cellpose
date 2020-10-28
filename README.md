@@ -1,18 +1,47 @@
 # Cellpose <img src="cellpose/logo/logo.png" width="250" title="cellpose" alt="cellpose" align="right" vspace = "50">
 
+[![Documentation Status](https://readthedocs.org/projects/cellpose/badge/?version=latest)](https://cellpose.readthedocs.io/en/latest/?badge=latest)
+[![Build Status](https://travis-ci.org/MouseLand/cellpose.svg?branch=master)](https://travis-ci.org/MouseLand/cellpose)
+[![Coverage Status](https://coveralls.io/repos/github/MouseLand/cellpose/badge.svg?branch=master)](https://coveralls.io/github/MouseLand/cellpose?branch=master)
+[![PyPI version](https://badge.fury.io/py/cellpose.svg)](https://badge.fury.io/py/cellpose)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/cellpose)](https://pypistats.org/packages/cellpose)
+[![Python version](https://img.shields.io/pypi/pyversions/cellpose)](https://pypistats.org/packages/cellpose)
+[![Licence: GPL v3](https://img.shields.io/github/license/MouseLand/cellpose)](https://github.com/MouseLand/cellpose/blob/master/LICENSE)
+[![Contributors](https://img.shields.io/github/contributors-anon/MouseLand/cellpose)](https://github.com/MouseLand/cellpose/graphs/contributors)
+[![website](https://img.shields.io/website?url=https%3A%2F%2Fwww.cellpose.org)](https://www.cellpose.org)
+[![repo size](https://img.shields.io/github/repo-size/MouseLand/cellpose)](https://github.com/MouseLand/cellpose/)
+[![GitHub stars](https://img.shields.io/github/stars/MouseLand/cellpose?style=social)](https://github.com/MouseLand/cellpose/)
+[![GitHub forks](https://img.shields.io/github/forks/MouseLand/cellpose?style=social)](https://github.com/MouseLand/cellpose/)
+
 A generalist algorithm for cell and nucleus segmentation. 
 
 This code was written by Carsen Stringer and Marius Pachitariu. To learn about Cellpose, read the [paper](https://t.co/4HFsxDezAP?amp=1) or watch the [talk](https://t.co/JChCsTD0SK?amp=1). For support, please open an [issue](https://github.com/MouseLand/cellpose/issues). 
 
-You can quickly try out Cellpose on the [website](http://www.cellpose.org) first (some features disabled). If you want to improve Cellpose for yourself and for everyone else, please consider contributing manual segmentations for a few of your images via the built-in GUI interface (see instructions below). 
+If you want to improve Cellpose for yourself and for everyone else, please consider contributing manual segmentations for a few of your images via the built-in GUI interface (see instructions below). 
 
-### Detailed documentation at [www.cellpose.org/docs](http://www.cellpose.org/static/docs/index.html).
+### Run cellpose without local python installation
+
+You can quickly try out Cellpose on the [website](http://www.cellpose.org) first (some features disabled). 
+
+You can also run Cellpose in google colab with a GPU -> [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MouseLand/cellpose/blob/master/notebooks/run_cellpose_GPU.ipynb). This is recommended if you have issues with MKL or run speed on your local computer (and are running 3D volumes). Colab does not allow you to run the GUI, but you can save `*_seg.npy` files in colab that you can download and open in the GUI.
+
+**Executable file**: You can download an executable file for [*Windows 10*](http://www.cellpose.org/windows) or for [*Mac OS*](http://www.cellpose.org/mac) (High Sierra or greater) that were made using PyInstaller on Intel processors (MKL acceleration works, but no GPU support). Note in both cases it will take a few seconds to open.
+
+* The [*Mac OS*](http://www.cellpose.org/mac) file will download as `cellpose_mac` OR `cellpose_mac.dms`. You will need to make it into an executable file and run it through the terminal:
+1. Open a terminal and run `cd ~/Downloads/`.
+2. Run `chmod 777 cellpose_mac` OR `chmod 777 cellpose_mac.dms` to make the file executable.
+3. Run `./cellpose_mac` OR `./cellpose_mac.dms` to open the cellpose GUI. Messages from cellpose will be printed in the terminal.
+4. You can also run using the command line interface, e.g. as `./cellpose_mac --dir ~/Pictures/ --chan 2 --save_png`.
+
+* The [*Windows 10*](http://www.cellpose.org/windows) file is an exe and you can click on it to run the GUI. You can also run using the command line interface, e.g. as `cellpose.exe --dir Pictures/ --chan 2 --save_png`
+
+### Detailed documentation at [www.cellpose.org/docs](http://www.cellpose.org/docs).
 
 ## System requirements
 
 Linux, Windows and Mac OS are supported for running the code. For running the graphical interface you will need a Mac OS later than Yosemite. At least 8GB of RAM is required to run the software. 16GB-32GB may be required for larger images and 3D volumes. The software has been heavily tested on Windows 10 and Ubuntu 18.04 and less well-tested on Mac OS. Please open an issue if you have problems with installation.
 
-## Installation
+## Local installation
 
 This process should take less than 5 minutes.
 
@@ -43,43 +72,11 @@ pip install cellpose --upgrade
 
 If you have an older `cellpose` environment you can remove it with `conda env remove -n cellpose` before creating a new one.
 
-Note you will always have to run **conda activate cellpose** before you run cellpose. If you want to run jupyter notebooks in this environment, then also `conda install jupyter`.
+Note you will always have to run **conda activate cellpose** before you run cellpose. If you want to run jupyter notebooks in this environment, then also `conda install jupyter` and `pip install matplotlib`.
 
-### Common issues
+If you have **issues** with installation, see the [docs](https://cellpose.readthedocs.io/en/latest/installation.html) for more details, and then if the suggestions fail, open an issue.
 
-If you receive the error: `Illegal instruction (core dumped)`, then likely mxnet does not recognize your MKL version. Please uninstall and reinstall mxnet without mkl:
-~~~~
-pip uninstall mxnet-mkl
-pip uninstall mxnet
-pip install mxnet==1.4.0
-~~~~
-
-**MAC OS ISSUE**: You may have an issue on Mac with the latest *opencv-python* library (package name *cv2*). Downgrade it with the command
-~~~~
-pip install opencv-python==3.4.5.20
-~~~~
-
-If you receive the error: `No module named PyQt5.sip`, then try uninstalling and reinstalling pyqt5
-~~~~
-pip uninstall pyqt5 pyqt5-tools
-pip install pyqt5 pyqt5-tools pyqt5.sip
-~~~~
-
-If you receive an error associated with **matplotlib**, try upgrading it:
-~~~~
-pip install matplotlib --upgrade
-~~~~
-
-
-If you receive the error: `ImportError: _arpack DLL load failed`, then try uninstalling and reinstalling scipy
-~~~~
-pip uninstall scipy
-pip install scipy
-~~~~
-
-If you are having issues with the graphical interface, make sure you have **python 3.7** and not python 3.8 installed.
-
-**CUDA version**
+### CUDA version
 
 If you plan on running many images, you may want to install a GPU version of *mxnet*. I recommend using CUDA 10.0 or greater. Follow the instructions [here](https://mxnet.apache.org/get_started?).
 
@@ -146,52 +143,12 @@ The GUI serves two main functions:
 1. Running the segmentation algorithm.
 2. Manually labelling data.
 
-Main GUI mouse controls (works in all views):
+There is a help window in the GUI that provides more instructions and 
+a page in the documentation [here](http://cellpose.readthedocs.io/en/latest/gui.html).
+Also, if you hover over certain words in the GUI, their definitions are revealed as tooltips. 
+Here is a summary of their functions:
 
-- Pan  = left-click  + drag  
-- Zoom = scroll wheel
-- Full view = double left-click
-- Select mask = left-click on mask
-- Delete mask = Ctrl + left-click
-- Start draw mask = right-click
-- End draw mask = right-click, or return to circle at beginning
-
-Overlaps in masks are NOT allowed. If you draw a mask on top of another mask, it is cropped so that it doesn't overlap with the old mask. Masks in 2D should be single strokes (if *single_stroke* is checked). 
-
-If you want to draw masks in 3D, then you can turn *single_stroke* option off and draw a stroke on each plane with the cell and then press ENTER. 3D labelling will fill in unlabelled z-planes so that you do not have to as densely label.
-
-!NOTE!: The GUI automatically saves after you draw a mask but NOT after segmentation and NOT after 3D mask drawing (too slow). Save in the file menu or with Ctrl+S. The output file is in the same folder as the loaded image with `_seg.npy` appended.
-
-| Keyboard shortcuts  | Description                                                                    |
-| ------------------- | ------------------------------------------------------------------------------ |
-| CTRL+H              | help                                                           |
-| CTRL+Z              | undo previously drawn mask/stroke                              |
-| CTRL+0              | clear all masks                                                |
-| CTRL+L              | load image (can alternatively drag and drop image)             |
-| CTRL+S              | SAVE MASKS IN IMAGE to `_seg.npy` file                      |
-| CTRL+P              | load `_seg.npy` file (note: it will load automatically with image if it exists) |
-| CTRL+M              | load masks file (must be same size as image with 0 for NO mask, and 1,2,3... for masks)|
-| CTRL+N              | load numpy stack (NOT WORKING ATM)                             |
-| A/D or LEFT/RIGHT   | cycle through images in current directory                      |
-| W/S or UP/DOWN      | change color (RGB/gray/red/green/blue)                         |
-| PAGE-UP / PAGE-DOWN | change to flows and cell prob views (if segmentation computed) |
-| , / .               | increase / decrease brush size for drawing masks               |
-| X                   | turn masks ON or OFF                                           |
-| Z                   | toggle outlines ON or OFF                                      |
-| C                   | cycle through labels for image type (saved to `_seg.npy`)   |
-
-**Segmentation options**
-
-SIZE: you can manually enter the approximate diameter for your cells, or press "calibrate" to let the model estimate it. The size is represented by a disk at the bottom of the view window (can turn this disk off by unchecking "scale disk on").
-
-use GPU: if you have installed the cuda version of mxnet, then you can activate this, but it won't give huge speedups when running single images in the GUI.
-
-MODEL: there is a *cytoplasm* model and a *nuclei* model, choose what you want to segment
-
-CHAN TO SEG: this is the channel in which the cytoplasm or nuclei exist
-
-CHAN2 (OPT): if *cytoplasm* model is chosen, then choose the nuclear channel for this option
-
+<img src="docs/_static/cellpose_gui.png" width="600" title="cellpose gui" alt="cellpose gui" vspace = "50">
 
 ### In a notebook
 
@@ -209,73 +166,24 @@ You can specify the diameter for all the images or set to 0 if you want the algo
 python -m cellpose --dir ~/images_nuclei/test/ --pretrained_model nuclei --diameter 0. --save_png
 ~~~
 
-**Training**
+See the [docs](http://cellpose.readthedocs.io/en/latest/command.html) for more info.
 
-The same channel settings apply for training models. To train on cytoplasmic images (green cyto and red nuclei) starting with a pretrained model from cellpose (cyto or nuclei):
-~~~
-python -m cellpose --train --dir ~/images_cyto/train/ --test_dir ~/images_cyto/test/ --pretrained_model cyto --chan 2 --chan2 1
-~~~
+### Timing
 
-You can train from scratch as well:
-~~~
-python -m cellpose --train --dir ~/images_nuclei/train/ --pretrained_model None
-~~~
+You can check if cellpose is running the MKL version (if you are using the CPU not the GPU) by adding the flag `--check_mkl`. If you are not using MKL cellpose will be much slower. Here are Cellpose run times divided into the time it takes to run the deep neural network (DNN) and the time for postprocessing (gradient tracking, segmentation, quality control etc.). The DNN runtime is shown using either a GPU (Nvidia GTX 1080Ti) or a CPU (Intel 10-core 7900X), with or without network ensembling (4net vs 1net). The postprocessing runtime is similar regardless of ensembling or CPU/GPU version. Runtime is shown for different image sizes, all with a cell diameter of 30 pixels (the average from our training set).
 
-You can specify the full path to a pretrained model to use:
-~~~
-python -m cellpose --dir ~/images_cyto/test/ --pretrained_model ~/images_cyto/test/model/cellpose_35_0 --save_png
-~~~
-
-Parameters:
-~~~
-usage: __main__.py [-h] [--train] [--dir DIR] [--img_filter IMG_FILTER]
-                   [--use_gpu] [--pretrained_model PRETRAINED_MODEL]
-                   [--chan CHAN] [--chan2 CHAN2] [--all_channels]
-                   [--diameter DIAMETER] [--save_png]
-                   [--mask_filter MASK_FILTER] [--test_dir TEST_DIR]
-                   [--n_epochs N_EPOCHS] [--batch_size BATCH_SIZE]
-
-cellpose parameters
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --train               train network using images in dir
-  --dir DIR             folder containing data to run or train on
-  --img_filter IMG_FILTER
-                        end string for images to run on
-  --use_gpu             use gpu if mxnet with cuda installed
-  --pretrained_model PRETRAINED_MODEL
-                        model to use
-  --chan CHAN           channel to segment; 0: GRAY, 1: RED, 2: GREEN, 3: BLUE
-  --chan2 CHAN2         nuclear channel (if cyto, optional); 0: NONE, 1: RED,
-                        2: GREEN, 3: BLUE
-  --all_channels        use all channels in image if using own model and
-                        images with special channels
-  --diameter DIAMETER   cell diameter, if 0 cellpose will estimate for each
-                        image
-  --save_png            save masks as png
-  --mask_filter MASK_FILTER
-                        end string for masks to run on
-  --test_dir TEST_DIR   folder containing test data (optional)
-  --n_epochs N_EPOCHS   number of epochs
-  --batch_size BATCH_SIZE
-                        batch size
-~~~
+|   | 256 pix | 512 pix | 1024 pix |
+|----|-------|------|----------|
+| DNN (1net, GPU) | 0.054 s | 0.12 s | 0.31 s  |
+| DNN (1net, CPU) | 0.30 s | 0.65 s | 2.4 s  |
+| DNN (4net, GPU) | 0.23 s | 0.41 s | 1.3 s |
+| DNN (4net, CPU) | 1.3 s | 2.5 s | 9.1 s  |
+|  | |  |  |
+| Postprocessing (CPU) | 0.32 s | 1.2 s | 6.1 s  |
 
 ## Outputs
 
-`*_seg.npy` files have the following fields:
-
-- *filename* : filename of image
-- *img* : image with chosen channels (nchan x Ly x Lx) (if not multiplane)
-- *masks* : masks (0 = NO masks; 1,2,... = mask labels)
-- *colors* : colors for masks
-- *outlines* : outlines of masks (0 = NO outline; 1,2,... = outline labels)
-- *chan_choose* : channels that you chose in GUI (0=gray/none, 1=red, 2=green, 3=blue)
-- *ismanual* : element *k* = whether or not mask *k* was manually drawn or computed by the cellpose algorithm
-- *flows* : flows[0] is XY flow in RGB, flows[1] is the cell probability in range 0-255 instead of 0.0 to 1.0, flows[2] is Z flow in range 0-255 (if it exists)
-- *est_diam* : estimated diameter (if run on command line)
-- *zdraw* : for each mask, which planes were manually labelled (planes in between manually drawn have interpolated masks)
+See the [docs](http://cellpose.readthedocs.io/en/latest/outputs.html) for info.
 
 ## Dependencies
 cellpose relies on the following excellent packages (which are automatically installed with conda/pip if missing):
@@ -285,6 +193,4 @@ cellpose relies on the following excellent packages (which are automatically ins
 - [numpy](http://www.numpy.org/) (>=1.16.0)
 - [numba](http://numba.pydata.org/numba-doc/latest/user/5minguide.html)
 - [scipy](https://www.scipy.org/)
-- [scikit-image](https://scikit-image.org/)
 - [natsort](https://natsort.readthedocs.io/en/master/)
-- [matplotlib](https://matplotlib.org/)
